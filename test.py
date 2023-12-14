@@ -7,6 +7,8 @@ from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
 
+import matplotlib.pyplot as plt
+import numpy as np
 import net
 from function import adaptive_instance_normalization, coral
 
@@ -22,12 +24,40 @@ def test_transform(size, crop):
     return transform
 
 
-def style_transfer(vgg, decoder, content, style, alpha=1.0,
+def style_transfer(vgg, decoder, content, style, mask=None, alpha=1.0,
                    interpolation_weights=None):
     assert (0.0 <= alpha <= 1.0)
     content_f = vgg(content)
     style_f = vgg(style)
-    if interpolation_weights:
+    if mask:  # spatial control
+        style_f_fg = style_f
+        style_f_bg = content_f
+
+        _, C, H, W = content_f.size()
+
+        mask_img = Image.open(str(mask)).convert('1')
+
+        mask_resized = transforms.ToTensor()(mask_img.resize((W, H))) #1, H, W
+
+        mask_view = mask_resized.view(-1) #H*W
+
+        fg_mask = (mask_view == 1).nonzero().squeeze() #fg indices
+        bg_mask = (mask_view == 0).nonzero().squeeze() #bg indices
+
+        content_f_view = content_f.view(C,-1)  #C, H*W
+
+        content_f_fg = content_f_view[:, fg_mask].view(1, C, len(fg_mask), 1)
+        content_f_bg = content_f_view[:, bg_mask].view(1, C, len(bg_mask), 1)
+        
+        target_f_fg = adaptive_instance_normalization(content_f_fg, style_f_fg).squeeze()
+        target_f_bg = adaptive_instance_normalization(content_f_bg, style_f_bg).squeeze()
+
+        feat = content_f_view.clone().zero_()  # C, (H*W)
+        feat[:, fg_mask] = target_f_fg
+        feat[:, bg_mask] = target_f_bg
+        feat = feat.reshape(content_f.shape)
+
+    elif interpolation_weights:
         _, C, H, W = content_f.size()
         feat = torch.FloatTensor(1, C, H, W).zero_().to(device)
         base_feat = adaptive_instance_normalization(content_f, style_f)
@@ -75,6 +105,9 @@ parser.add_argument('--preserve_color', action='store_true',
 parser.add_argument('--alpha', type=float, default=1.0,
                     help='The weight that controls the degree of \
                              stylization. Should be between 0 and 1')
+parser.add_argument('--mask', type=str, default='',
+                    help='Mask to apply spatial control, assume to \
+                    be the path to a binary mask of the same size as content image')
 parser.add_argument(
     '--style_interpolation_weights', type=str, default='',
     help='The weight for blending the style of multiple style images')
@@ -137,7 +170,7 @@ for content_path in content_paths:
         content = content.to(device)
         with torch.no_grad():
             output = style_transfer(vgg, decoder, content, style,
-                                    args.alpha, interpolation_weights)
+                                     args.alpha, interpolation_weights)
         output = output.cpu()
         output_name = output_dir / '{:s}_interpolation{:s}'.format(
             content_path.stem, args.save_ext)
@@ -153,7 +186,7 @@ for content_path in content_paths:
             content = content.to(device).unsqueeze(0)
             with torch.no_grad():
                 output = style_transfer(vgg, decoder, content, style,
-                                        args.alpha)
+                                        args.mask, args.alpha)
             output = output.cpu()
 
             output_name = output_dir / '{:s}_stylized_{:s}{:s}'.format(
