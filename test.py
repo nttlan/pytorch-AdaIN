@@ -178,8 +178,8 @@ for content_path in content_paths:
 
     else:  # process one content and one style
         for style_path in style_paths:
-            content = content_tf(Image.open(str(content_path)))
-            style = style_tf(Image.open(str(style_path)))
+            content = content_tf(Image.open(str(content_path)).convert('RGB'))
+            style = style_tf(Image.open(str(style_path)).convert('RGB'))
             if args.preserve_color:
                 style = coral(style, content)
             style = style.to(device).unsqueeze(0)

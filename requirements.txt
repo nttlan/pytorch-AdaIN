@@ -8,3 +8,4 @@ torchvision
 tqdm
 opencv-python
 imageio
+gradio
