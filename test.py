@@ -6,6 +6,8 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
+import torch.nn.functional as F
+
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -155,6 +157,9 @@ decoder.load_state_dict(torch.load(args.decoder))
 vgg.load_state_dict(torch.load(args.vgg))
 vgg = nn.Sequential(*list(vgg.children())[:31])
 
+network = net.Net(vgg, decoder)
+network.eval()
+network.to(device)
 vgg.to(device)
 decoder.to(device)
 
@@ -187,6 +192,12 @@ for content_path in content_paths:
             with torch.no_grad():
                 output = style_transfer(vgg, decoder, content, style,
                                         args.mask, args.alpha)
+
+            loss_c = network.calc_content_loss(content, output)
+            resize_output = F.interpolate(output, size=(512, 512), mode='bilinear', align_corners=False)
+            loss_s = network.calc_style_loss(style, resize_output)
+            print('Content loss: ', loss_c.item())
+            print('Style loss: ', loss_s.item())
             output = output.cpu()
 
             output_name = output_dir / '{:s}_stylized_{:s}{:s}'.format(
